@@ -12,10 +12,11 @@
  * Create: 2024-10-08
  * Description: AMQP protocol matcher interface
  ******************************************************************************/
+
 #ifndef __AMQP_MATCHER_H__
 #define __AMQP_MATCHER_H__
 
-#include "../../include/data_stream.h"
+#include "common/protocol_common.h"
 #include "../model/amqp_msg_format.h"
 
 /**

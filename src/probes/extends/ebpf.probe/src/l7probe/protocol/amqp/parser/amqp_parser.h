@@ -12,29 +12,37 @@
  * Create: 2024-10-08
  * Description: AMQP protocol parser interface
  ******************************************************************************/
+
 #ifndef __AMQP_PARSER_H__
 #define __AMQP_PARSER_H__
 
-#include "../../include/data_stream.h"
+#include "common/protocol_common.h"
 #include "../model/amqp_msg_format.h"
 
 /**
- * Parse AMQP frame from raw data
+ * Parse AMQP frame
  *
- * @param msg_type message type (request/response)
- * @param raw_data raw data buffer
+ * @param msg_type message type
+ * @param raw_data raw data
  * @param frame_data output frame data
  * @return parse state
  */
 parse_state_t amqp_parse_frame(enum message_type_t msg_type, struct raw_data_s *raw_data, struct frame_data_s **frame_data);
 
 /**
- * Find frame boundary in raw data
+ * Find frame boundary for AMQP raw data
  *
- * @param msg_type message type (request/response)
- * @param raw_data raw data buffer
+ * @param msg_type message type
+ * @param raw_data raw data
  * @return frame boundary position
  */
 size_t amqp_find_frame_boundary(enum message_type_t msg_type, struct raw_data_s *raw_data);
+
+/**
+ * Free AMQP message data
+ *
+ * @param msg AMQP message to be freed
+ */
+void free_amqp_msg(struct amqp_message_s *msg);
 
 #endif /* __AMQP_PARSER_H__ */ 
