@@ -27,6 +27,8 @@
 #include "crpc/crpc_parser.h"
 #include "mysql/mysql_parser.h"
 #include "mysql/mysql_matcher.h"
+#include "amqp/amqp_parser.h"
+#include "amqp/amqp_matcher.h"
 
 
 /**
@@ -52,7 +54,6 @@ void free_record_data(enum proto_type_t type, struct record_data_s *record_data)
         case PROTO_HTTP:
             free_http_record((http_record *)record_data->record);
             break;
-            // todo: add protocols:
         case PROTO_HTTP2:
             break;
         case PROTO_REDIS:
@@ -66,6 +67,9 @@ void free_record_data(enum proto_type_t type, struct record_data_s *record_data)
             break;
         case PROTO_MYSQL:
             free_mysql_record((struct mysql_command_req_resp_s*) record_data->record);
+            break;
+        case PROTO_AMQP:
+            free_amqp_record((struct amqp_record_s *)record_data->record);
             break;
         case PROTO_MONGO:
         case PROTO_DNS:
@@ -94,7 +98,6 @@ void free_frame_data_s(enum proto_type_t type, struct frame_data_s *frame)
         case PROTO_HTTP:
             free_http_msg((http_message *)frame->frame);
             break;
-        // todo: add protocols:
         case PROTO_HTTP2:
             break;
         case PROTO_REDIS:
@@ -108,6 +111,9 @@ void free_frame_data_s(enum proto_type_t type, struct frame_data_s *frame)
             break;
         case PROTO_MYSQL:
             free_mysql_packet_msg_s((struct mysql_packet_msg_s*)frame->frame);
+            break;
+        case PROTO_AMQP:
+            free_amqp_msg((struct amqp_message_s *)frame->frame);
             break;
         case PROTO_MONGO:
         case PROTO_DNS:
@@ -180,6 +186,9 @@ parse_state_t proto_parse_frame(enum proto_type_t type, enum message_type_t msg_
         case PROTO_MYSQL:
             state = mysql_parse_frame(msg_type, raw_data, frame_data);
             break;
+        case PROTO_AMQP:
+            state = amqp_parse_frame(msg_type, raw_data, frame_data);
+            break;
         case PROTO_MONGO:
             break;
         case PROTO_DNS:
@@ -222,6 +231,9 @@ void proto_match_frames(enum proto_type_t type, struct frame_buf_s *req_frame, s
             break;
         case PROTO_MYSQL:
             mysql_match_frames(req_frame, resp_frame, record_buf);
+            break;
+        case PROTO_AMQP:
+            amqp_match_frames(req_frame, resp_frame, record_buf);
             break;
         case PROTO_MONGO:
             break;
