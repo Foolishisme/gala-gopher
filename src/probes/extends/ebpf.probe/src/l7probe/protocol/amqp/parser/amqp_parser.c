@@ -15,9 +15,9 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include "common/protocol_common.h"
-#include "utils/binary_decoder.h"
 #include "amqp_parser.h"
+#include "../utils/binary_decoder.h"
+
 
 /* AMQP Protocol Constants */
 #define AMQP_FRAME_HEADER_SIZE 8
@@ -195,6 +195,10 @@ static parse_state_t parse_content_header(const char *data, size_t *pos, amqp_me
 
 static parse_state_t parse_amqp_0_9_frame(struct raw_data_s *raw_data, amqp_message_t *msg)
 {
+    if (raw_data == NULL || msg == NULL || raw_data->data == NULL) {
+        return STATE_INVALID;
+    }
+
     if (raw_data->data_len < AMQP_FRAME_HEADER_SIZE) {
         return STATE_NEEDS_MORE_DATA;
     }
@@ -204,6 +208,11 @@ static parse_state_t parse_amqp_0_9_frame(struct raw_data_s *raw_data, amqp_mess
     msg->channel_num = (raw_data->data[1] << 8) | raw_data->data[2];
     msg->frame_size = (raw_data->data[3] << 24) | (raw_data->data[4] << 16) |
                      (raw_data->data[5] << 8) | raw_data->data[6];
+
+    /* Validate frame size */
+    if (msg->frame_size > MAX_FRAME_SIZE) {
+        return STATE_INVALID;
+    }
 
     /* Check if we have enough data for the complete frame */
     if (raw_data->data_len < msg->frame_size + AMQP_FRAME_HEADER_SIZE) {
@@ -230,20 +239,31 @@ static parse_state_t parse_amqp_0_9_frame(struct raw_data_s *raw_data, amqp_mess
             /* Parse method arguments based on class and method */
             if (msg->class_id == AMQP_0_9_CLASS_BASIC) {
                 if (msg->method_id == AMQP_0_9_METHOD_BASIC_PUBLISH) {
-                    parse_basic_publish(raw_data->data, &pos, msg);
+                    if (!parse_basic_publish(raw_data->data, &pos, msg)) {
+                        return STATE_INVALID;
+                    }
                 } else if (msg->method_id == AMQP_0_9_METHOD_BASIC_DELIVER) {
-                    parse_basic_deliver(raw_data->data, &pos, msg);
+                    if (!parse_basic_deliver(raw_data->data, &pos, msg)) {
+                        return STATE_INVALID;
+                    }
                 }
             }
             break;
 
         case AMQP_0_9_FRAME_TYPE_CONTENT_HEADER:
-            parse_content_header(raw_data->data, &pos, msg);
+            if (!parse_content_header(raw_data->data, &pos, msg)) {
+                return STATE_INVALID;
+            }
             break;
 
         case AMQP_0_9_FRAME_TYPE_CONTENT_BODY:
-            msg->body = (char *)raw_data->data + pos;
-            msg->body_size = msg->frame_size;
+            /* Copy body to avoid dangling pointer */
+            msg->body = (char *)malloc(msg->frame_size);
+            if (msg->body == NULL) {
+                return STATE_INVALID;
+            }
+            memcpy(msg->body, raw_data->data + pos, msg->frame_size);
+            msg->body_allocated = true;
             break;
 
         case AMQP_0_9_FRAME_TYPE_HEARTBEAT:
@@ -258,6 +278,81 @@ static parse_state_t parse_amqp_0_9_frame(struct raw_data_s *raw_data, amqp_mess
     raw_data->current_pos += msg->frame_size + AMQP_FRAME_HEADER_SIZE;
 
     return STATE_SUCCESS;
+}
+
+/* Memory Management Functions */
+static void free_amqp_message(amqp_message_t *msg)
+{
+    if (msg == NULL) {
+        return;
+    }
+    
+    free(msg->exchange);
+    free(msg->routing_key);
+    free(msg->consumer_tag);
+    free(msg->content_type);
+    free(msg->content_encoding);
+    
+    /* Only free body if it was copied */
+    if (msg->body != NULL && msg->body_allocated) {
+        free(msg->body);
+    }
+    
+    free(msg);
+}
+
+/* Improved String Parsing Functions */
+static bool parse_short_string(const char *data, size_t *pos, char **str, size_t max_len)
+{
+    if (data == NULL || pos == NULL || str == NULL) {
+        return false;
+    }
+    
+    uint8_t len = data[*pos];
+    (*pos)++;
+    
+    if (len > max_len) {
+        return false;
+    }
+    
+    if (len > 0) {
+        *str = (char *)malloc(len + 1);
+        if (*str == NULL) {
+            return false;
+        }
+        memcpy(*str, data + *pos, len);
+        (*str)[len] = '\0';
+        *pos += len;
+    }
+    
+    return true;
+}
+
+static bool parse_long_string(const char *data, size_t *pos, char **str, size_t max_len)
+{
+    if (data == NULL || pos == NULL || str == NULL) {
+        return false;
+    }
+    
+    uint32_t len = (data[*pos] << 24) | (data[*pos + 1] << 16) |
+                   (data[*pos + 2] << 8) | data[*pos + 3];
+    *pos += 4;
+    
+    if (len > max_len) {
+        return false;
+    }
+    
+    if (len > 0) {
+        *str = (char *)malloc(len + 1);
+        if (*str == NULL) {
+            return false;
+        }
+        memcpy(*str, data + *pos, len);
+        (*str)[len] = '\0';
+        *pos += len;
+    }
+    
+    return true;
 }
 
 /* Public Functions */
@@ -292,6 +387,7 @@ parse_state_t amqp_parse_frame(enum message_type_t msg_type, struct raw_data_s *
     if (msg == NULL) {
         WARN("[AMQP PARSER] Failed to allocate message.\n");
         free(*frame_data);
+        *frame_data = NULL;
         return STATE_INVALID;
     }
 
@@ -302,8 +398,9 @@ parse_state_t amqp_parse_frame(enum message_type_t msg_type, struct raw_data_s *
     parse_state_t state = parse_amqp_0_9_frame(raw_data, msg);
     if (state != STATE_SUCCESS) {
         WARN("[AMQP PARSER] Failed to parse frame.\n");
-        free(msg);
+        free_amqp_message(msg);
         free(*frame_data);
+        *frame_data = NULL;
         return state;
     }
 

@@ -16,7 +16,7 @@
 #ifndef __AMQP_MATCHER_H__
 #define __AMQP_MATCHER_H__
 
-#include "common/protocol_common.h"
+#include "../../common/protocol_common.h"
 #include "../model/amqp_msg_format.h"
 
 /**

@@ -15,7 +15,7 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include "common/protocol_common.h"
+#include "../../common/protocol_common.h"
 #include "amqp_matcher.h"
 
 /* Helper Functions */
